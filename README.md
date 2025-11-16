@@ -1,130 +1,144 @@
 # rustaichat
 
-Terminal-first multi-provider AI chat CLI focused on Gemini for the MVP stage. The package includes npm packaging support that compiles the release binary during installation.
+Terminal-first, multi-provider AI chat CLI with first-class streaming. Gemini is fully exercised in the MVP, while Claude (Anthropic) and OpenAI providers are wired up but still waiting on manual validation.
 
 ## Overview
 
-`rustaichat` is a terminal-first Rust CLI that orchestrates multi-provider chats by loading credentials from `~/.config/rustaichat/config.toml`, sending messages to the configured provider, and persisting session history. The MVP ships with Google Gemini support and provides a provider trait for adding Anthropic/OpenAI adapters.
+`rustaichat` loads credentials from `~/.config/rustaichat/config.toml`, selects the requested provider, and streams chat responses inside either a REPL (`chat`) or a one-off `message` command. All providers conform to a single trait (`provider/trait_provider.rs`), so new backends only require implementing that interface.
 
-## Features
+> **Status:** Google Gemini paths are verified daily. Claude/OpenAI adapters share the same CLI plumbing but have **not been tested against the live APIs yet**—please treat them as experimental until you confirm them with your own credentials.
 
-- Config management & secrets store: `config` command stores multiple provider credentials and exposes `set`, `get`, `list`, and `delete` operations. Example:
+## Feature Highlights
 
-  ```powershell
-  rustaichat config set google --api-key <YOUR_KEY> --default
-  ```
-
-- Chat REPL + single-shot messaging: `chat` supports a system prompt, `/reset`, streaming (`--stream`), and `--save` for exporting JSON history. `message` sends a one-off request without entering the REPL.
-
-- Provider abstraction: Implementations conform to the trait in `provider/trait_provider.rs`. The repo includes a Google Gemini implementation and stubs for Anthropic/OpenAI.
-
-- Retry/backoff + streaming placeholder: Basic retry/backoff for API calls and a streaming placeholder in `streaming.rs` for future incremental output.
+- **Unified config + secrets:** `rustaichat config set <name> --kind <google|anthropic|openai>` stores multiple credentials, marks defaults, and keeps provider-specific hints.
+- **Streaming chat + single-shot messaging:** `chat` exposes `/reset`, `--system`, `--stream`, and `--save`. `message` sends one prompt without entering the REPL.
+- **Multiple providers out of the box:** Gemini (service account or API key), Claude (Anthropic Messages API), and OpenAI Chat Completions share the same CLI switches.
+- **Smarter streaming:** Gemini streaming now yields only fresh deltas, preventing duplicate or half-baked tokens. Anthropic/OpenAI streams use the same SSE event parser for consistent output.
+- **npm packaging with prebuilts:** `scripts/postinstall.js` downloads release binaries for Windows/macOS/Linux and falls back to `cargo build --release` when an artifact is missing.
 
 ## Project Layout
 
 ```
 rustaichat/
-├─ Cargo.toml              # Rust dependencies + CLI metadata
+├─ Cargo.toml              # Rust dependencies + metadata
 ├─ README.md               # This document
-├─ examples/
-│  └─ config.toml          # Example config
+├─ examples/config.toml    # Sample multi-provider config
+├─ scripts/                # npm postinstall + runner helpers
 └─ src/
-   ├─ main.rs              # CLI entrypoint and command dispatch
-   ├─ cli.rs               # clap schema and subcommands
-   ├─ config.rs            # config file load/save and default provider
+   ├─ cli.rs               # clap schema
+   ├─ config.rs            # load/save config + validation
    ├─ provider/
-   │  ├─ mod.rs            # factory and exports
-   │  ├─ trait_provider.rs # common provider trait
-   │  ├─ google.rs         # Gemini MVP implementation
-   │  ├─ anthropic.rs      # Anthropic stub
-   │  └─ openai.rs         # OpenAI stub
-   ├─ repl.rs              # REPL loop and history logic
-   ├─ streaming.rs         # streaming helpers (placeholder)
-   ├─ logger.rs            # history persistence helpers
-   └─ utils.rs             # path/file helpers
+   │  ├─ mod.rs            # provider factory
+   │  ├─ trait_provider.rs # shared trait + message types
+   │  ├─ google.rs         # Gemini implementation
+   │  ├─ anthropic.rs      # Claude (API key)
+   │  └─ openai.rs         # OpenAI Chat Completions
+   ├─ repl.rs              # REPL/session handling
+   ├─ streaming.rs         # shared stream helpers
+   ├─ logger.rs            # history persistence
+   └─ utils.rs             # misc helpers
 ```
 
-## Quick Start
+## Installation
 
-1. Install a recent Rust toolchain (1.75+ recommended).
+### Via Cargo (local dev)
 
 ```powershell
 rustup toolchain install stable
-```
-
-2. Build the CLI locally:
-
-```powershell
 cargo build --release
+# Run the freshly built binary
+target\release\rustaichat.exe chat --model gemini-2.0-flash
 ```
 
-3. Register provider credentials (example for Google Gemini):
-
-```powershell
-rustaichat config set google --api-key <YOUR_KEY> --default
-```
-
-4. Start the chat REPL:
-
-```powershell
-rustaichat chat --model gemini-2.0-flash
-```
-
-Enable token streaming:
-
-```powershell
-rustaichat chat --model gemini-2.0-flash --stream
-```
-
-5. Send a single message without the REPL:
-
-```powershell
-rustaichat message --provider google --model gemini-2.0-flash "Hello Gemini"
-```
-
-## npm Packaging
-
-### Installation
-
-This package is published on npm and is available now. Install the CLI globally with:
+### Via npm (prebuilt binaries)
 
 ```powershell
 npm install -g rustaichat
 rustaichat chat --model gemini-2.0-flash
 ```
 
-The package runs `scripts/postinstall.js`, which will call `cargo build --release` to build the binary if a prebuilt executable for your platform is not bundled. If the postinstall step needs to compile from source, ensure a Rust toolchain (`cargo`) is available on the machine.
-
-To test locally before publishing:
-
-```powershell
-npm install -g .
-```
-
-### Publishing
-
-1. Ensure `Cargo.toml` and `package.json` `version` fields match.
-2. Verify local build: `npm install` or `npm install -g .` to confirm `postinstall` runs `cargo build`.
-3. `npm login` and `npm publish --access public` to publish the package.
+`scripts/postinstall.js` pulls the appropriate asset (for example `rustaichat-windows-x86_64.exe`) from GitHub Releases. If it cannot find one, it transparently runs `cargo build --release`, so keep a Rust toolchain installed as a fallback.
 
 ## Configuration
 
-- Config file location: `~/.config/rustaichat/config.toml` (on Windows use `%APPDATA%\rustaichat\config.toml`).
-- Example config: see `examples/config.toml` for fields like `default_project`, `model`, and `service_account`.
-- Commands: `rustaichat config list`, `rustaichat config get <provider>`, `rustaichat config delete <provider>`.
+Configs live at `~/.config/rustaichat/config.toml` (`%APPDATA%\rustaichat\config.toml` on Windows). Use the CLI to manage entries:
 
-## Gemini Authentication Tips
+```powershell
+rustaichat config set google --service-account C:\keys\sa.json --default
+rustaichat config set claude --kind anthropic --api-key <ANTHROPIC_KEY>
+rustaichat config set openai --kind openai --api-key <OPENAI_KEY> --shared-default-model gpt-4o-mini
+rustaichat config show
+```
 
-- Service account: request OAuth tokens with the `https://www.googleapis.com/auth/generative-language` scope and grant the service account the *Generative Language API User* role in GCP.
-- API key: use a `generativelanguage.googleapis.com` API key and keep it secret.
+Minimal TOML example:
 
-## Next Steps
+```toml
+default_provider = "google"
 
-- Implement streaming via `reqwest::bytes_stream` and incremental REPL output.
-- Complete Anthropic and OpenAI provider implementations.
-- Add unit tests for config parsing, provider adapters, and REPL history rotation.
-- Add CI packaging tests that run `npm install` and maintain release notes.
+[providers.google]
+type = "google"
+service_account_file = "C:/keys/sa.json"
+default_model = "gemini-2.0-flash"
+
+[providers.claude]
+type = "anthropic"
+api_key = "ANTHROPIC_API_KEY"
+default_model = "claude-3-sonnet-20240229"
+
+[providers.openai]
+type = "openai"
+api_key = "OPENAI_API_KEY"
+default_model = "gpt-4o-mini"
+```
+
+## Usage
+
+```powershell
+# Interactive REPL using the default provider
+rustaichat chat
+
+# Force a specific provider/model + streaming
+rustaichat chat --provider claude --model claude-3-haiku-20240307 --stream
+
+# One-off prompt without the REPL
+rustaichat message --provider openai --model gpt-4o-mini "Summarize the agenda"
+
+# Persist chat history to JSON
+rustaichat chat --save session.json
+```
+
+### Provider-specific notes
+
+- **Google Gemini:** supports service accounts (OAuth scope `https://www.googleapis.com/auth/generative-language`) or API keys. Streaming now emits only fresh deltas, so the REPL no longer prints duplicated prefixes.
+- **Anthropic Claude:** calls `/v1/messages` with `x-api-key` and `anthropic-version: 2023-06-01`, parsing SSE `content_block_delta` events. *Still untested in a real environment—please report any issues.*
+- **OpenAI:** targets `/v1/chat/completions` with standard streaming chunks. *Also untested so far; confirm with your workspace before relying on it in production.*
+
+## Streaming Behavior
+
+- Gemini responses pass through a JSON-frame detector that peels complete payloads from arbitrary chunking, then emits only the newly added suffix.
+- Anthropic and OpenAI share a lightweight SSE accumulator that waits for blank-line delimiters, parses the JSON payload, and yields real text deltas only.
+- The REPL flushes stdout per delta, so responses stay snappy while respecting provider pacing.
+
+## npm Publishing Checklist
+
+1. Ensure `Cargo.toml` and `package.json` versions match.
+2. Build/upload release binaries (Windows/macOS/Linux) so `postinstall` can download instead of compiling.
+3. Run `npm install -g .` locally to confirm `postinstall.js` finds/installs the binary.
+4. `npm publish --access public`.
+
+## Known Limitations
+
+- Claude/OpenAI paths compile and stream locally but **have not been verified against live APIs yet**; treat them as beta quality.
+- Automatic history persistence is limited to the optional `--save` flag; richer logging/export flows are planned.
+- There is no CI or automated testing pipeline—the short-term focus has been feature velocity.
+
+## Roadmap
+
+- Add integration tests with mocked SSE streams to lock in parser behavior.
+- Ship CI workflows that build/upload release assets automatically for npm consumers.
+- Extend logging/export (Markdown transcripts, Discord/webhook sinks).
+- Explore a TUI once the CLI stabilizes.
 
 ---
 
-*English-only documentation for the Rust CLI, provider configuration, and npm packaging workflows.*
+*English-only documentation. Please report issues—especially for the newly added Claude/OpenAI adapters so we can remove the "untested" label quickly.*

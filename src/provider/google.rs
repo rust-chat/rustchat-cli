@@ -136,6 +136,7 @@ impl GoogleProvider {
             let body = response.bytes_stream();
             let stream = try_stream! {
                 let mut buffer = String::new();
+                let mut last_snapshot = String::new();
                 pin_mut!(body);
                 
                 while let Some(chunk) = body.next().await {
@@ -145,8 +146,9 @@ impl GoogleProvider {
                     
                     while let Some(texts) = Self::try_extract_json(&mut buffer)? {
                         for t in texts {
-                            if !t.is_empty() {
-                                yield t;
+                            let delta = Self::extract_delta(&mut last_snapshot, &t);
+                            if !delta.is_empty() {
+                                yield delta;
                             }
                         }
                     }
@@ -155,8 +157,9 @@ impl GoogleProvider {
                 if !buffer.trim().is_empty() {
                     if let Some(texts) = Self::try_extract_json(&mut buffer)? {
                         for t in texts {
-                            if !t.is_empty() {
-                                yield t;
+                            let delta = Self::extract_delta(&mut last_snapshot, &t);
+                            if !delta.is_empty() {
+                                yield delta;
                             }
                         }
                     }
@@ -320,74 +323,6 @@ impl GoogleProvider {
         }
     }
 
-    fn append_stream_line(current: &mut String, line: &str) {
-        let trimmed = line.trim_end_matches('\r');
-        if trimmed.is_empty() {
-            return;
-        }
-
-        if !current.is_empty() {
-            current.push('\n');
-        }
-
-        if let Some(rest) = trimmed.trim_start().strip_prefix("data:") {
-            current.push_str(rest.trim_start());
-        } else {
-            current.push_str(trimmed);
-        }
-    }
-
-    fn flush_stream_event(current: &mut String) -> Result<Vec<String>> {
-        if current.trim().is_empty() {
-            current.clear();
-            return Ok(Vec::new());
-        }
-
-        let payload = current.trim().to_string();
-        current.clear();
-        Self::parse_stream_payload(&payload)
-    }
-
-    fn looks_like_complete_json(payload: &str) -> bool {
-        let mut brace = 0_i32;
-        let mut bracket = 0_i32;
-        let mut in_string = false;
-        let mut escape = false;
-        let mut seen_open = false;
-
-        for ch in payload.chars() {
-            if escape {
-                escape = false;
-                continue;
-            }
-            match ch {
-                '\\' if in_string => {
-                    escape = true;
-                }
-                '"' => {
-                    in_string = !in_string;
-                }
-                '{' if !in_string => {
-                    brace += 1;
-                    seen_open = true;
-                }
-                '}' if !in_string => {
-                    brace -= 1;
-                }
-                '[' if !in_string => {
-                    bracket += 1;
-                    seen_open = true;
-                }
-                ']' if !in_string => {
-                    bracket -= 1;
-                }
-                _ => {}
-            }
-        }
-
-        !in_string && brace == 0 && bracket == 0 && seen_open
-    }
-
     fn parse_stream_payload(payload: &str) -> Result<Vec<String>> {
         let body = payload.trim();
         if body.is_empty() || body == "[DONE]" {
@@ -409,6 +344,25 @@ impl GoogleProvider {
                 .with_context(|| format!("failed to parse stream chunk: {body}"))?;
             Ok(chunk.merge_text().into_iter().collect())
         }
+    }
+
+    fn extract_delta(snapshot: &mut String, incoming: &str) -> String {
+        if incoming.is_empty() {
+            return String::new();
+        }
+
+        if incoming.starts_with(snapshot.as_str()) {
+            let delta = &incoming[snapshot.len()..];
+            *snapshot = incoming.to_string();
+            return delta.to_string();
+        }
+
+        if snapshot.starts_with(incoming) {
+            return String::new();
+        }
+
+        *snapshot = incoming.to_string();
+        incoming.to_string()
     }
 }
 

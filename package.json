@@ -1,6 +1,6 @@
 {
   "name": "rustaichat",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "description": "Terminal-based multi-provider AI chat CLI (Gemini-first) built in Rust",
   "license": "MIT",
   "bin": {

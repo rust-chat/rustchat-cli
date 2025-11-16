@@ -4,7 +4,7 @@ pub mod anthropic;
 pub mod google;
 pub mod openai;
 
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use trait_provider::Provider;
 
 pub use trait_provider::{ChatMessage, ChatRequestOptions, DynProvider, MessageRole};
@@ -20,12 +20,13 @@ pub async fn build_provider(
             let provider = google::GoogleProvider::new(name.into(), google_cfg.clone()).await?;
             std::sync::Arc::new(provider) as trait_provider::DynProvider
         }
-        ProviderConfig::Anthropic(_) | ProviderConfig::Openai(_) => {
-            return Err(anyhow!(
-                "provider '{}' ({:?}) not implemented yet",
-                name,
-                cfg.kind()
-            ));
+        ProviderConfig::Anthropic(anthropic_cfg) => {
+            let provider = anthropic::AnthropicProvider::new(name.into(), anthropic_cfg.clone()).await?;
+            std::sync::Arc::new(provider) as trait_provider::DynProvider
+        }
+        ProviderConfig::Openai(openai_cfg) => {
+            let provider = openai::OpenAiProvider::new(name.into(), openai_cfg.clone()).await?;
+            std::sync::Arc::new(provider) as trait_provider::DynProvider
         }
     })
 }

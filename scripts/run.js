@@ -20,7 +20,7 @@ const distDir = path.join(__dirname, '..', 'dist', platDir);
 // Windows에서 실제 존재하는 exe 파일 찾기
 let binaryName;
 if (process.platform === 'win32') {
-  const candidates = ['rustaichat.exe', 'rustaichat-windows-x86_64.exe'];
+  const candidates = ['rustaichat-windows-x86_64.exe'];
   binaryName = candidates.find(f => fs.existsSync(path.join(distDir, f)));
 } else if (process.platform === 'linux') {
   const candidates = ['rustaichat-linux-x86_64'];
