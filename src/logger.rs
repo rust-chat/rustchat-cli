@@ -4,10 +4,11 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
+use reqwest::Client;
 use serde::Serialize;
 
 use crate::config::APP_DIR;
-use crate::provider::{ChatMessage, MessageRole};
+use crate::provider::ChatMessage;
 
 const HISTORY_SUBDIR: &str = "history";
 
@@ -26,10 +27,10 @@ impl HistoryFormat {
     }
 }
 
-#[derive(Serialize)]
-struct SerializableMessage<'a> {
-    role: &'a str,
-    content: &'a str,
+#[derive(Serialize, Clone)]
+struct SerializableMessage {
+    role: String,
+    content: String,
 }
 
 pub fn save_history(
@@ -49,6 +50,41 @@ pub fn save_history(
     }
     fs::write(path, payload)
         .with_context(|| format!("failed to write log to {}", path.display()))?;
+    Ok(())
+}
+
+pub async fn send_history_webhook(
+    url: &str,
+    format: HistoryFormat,
+    system: Option<&str>,
+    messages: &[ChatMessage],
+) -> Result<()> {
+    let client = Client::new();
+    match format {
+        HistoryFormat::Json => {
+            let payload = collect_serializable_messages(system, messages);
+            client
+                .post(url)
+                .json(&payload)
+                .send()
+                .await
+                .with_context(|| format!("failed to reach webhook {url}"))?
+                .error_for_status()
+                .with_context(|| format!("webhook {url} returned error status"))?;
+        }
+        HistoryFormat::Markdown => {
+            let markdown = render_markdown_payload(system, messages);
+            client
+                .post(url)
+                .header("content-type", "text/markdown; charset=utf-8")
+                .body(markdown)
+                .send()
+                .await
+                .with_context(|| format!("failed to reach webhook {url}"))?
+                .error_for_status()
+                .with_context(|| format!("webhook {url} returned error status"))?;
+        }
+    }
     Ok(())
 }
 
@@ -93,30 +129,29 @@ fn sanitized_provider(provider: &str) -> String {
 }
 
 fn build_json_payload(system: Option<&str>, messages: &[ChatMessage]) -> Result<String> {
-    let serializable: Vec<SerializableMessage<'_>> = messages
-        .iter()
-        .map(|message| SerializableMessage {
-            role: match message.role {
-                MessageRole::System => "system",
-                MessageRole::User => "user",
-                MessageRole::Assistant => "assistant",
-            },
-            content: message.content.as_str(),
-        })
-        .collect();
-
-    let mut payload = serde_json::to_value(&serializable)?;
-    if let (serde_json::Value::Array(array), Some(system_text)) = (&mut payload, system) {
-        array.insert(
-            0,
-            serde_json::json!({
-                "role": "system",
-                "content": system_text,
-            }),
-        );
-    }
-    let json = serde_json::to_string_pretty(&payload)?;
+    let entries = collect_serializable_messages(system, messages);
+    let json = serde_json::to_string_pretty(&entries)?;
     Ok(json)
+}
+
+fn collect_serializable_messages(
+    system: Option<&str>,
+    messages: &[ChatMessage],
+) -> Vec<SerializableMessage> {
+    let mut serializable = Vec::with_capacity(messages.len() + 1);
+    if let Some(system_text) = system {
+        serializable.push(SerializableMessage {
+            role: "system".to_string(),
+            content: system_text.to_string(),
+        });
+    }
+    for message in messages {
+        serializable.push(SerializableMessage {
+            role: message.role.to_string(),
+            content: message.content.clone(),
+        });
+    }
+    serializable
 }
 
 fn render_markdown_payload(system: Option<&str>, messages: &[ChatMessage]) -> String {
@@ -156,10 +191,7 @@ mod tests {
 
     #[test]
     fn markdown_payload_captures_roles() {
-        let messages = vec![
-            ChatMessage::user("Ping"),
-            ChatMessage::assistant("Pong"),
-        ];
+        let messages = vec![ChatMessage::user("Ping"), ChatMessage::assistant("Pong")];
         let md = render_markdown_payload(None, &messages);
         assert!(md.contains("## user"));
         assert!(md.contains("## assistant"));
@@ -173,12 +205,8 @@ mod tests {
             .with_ymd_and_hms(2024, 5, 1, 12, 30, 45)
             .single()
             .expect("valid timestamp");
-        let path = timestamped_history_path_internal(
-            &base,
-            "Prod#Provider",
-            HistoryFormat::Markdown,
-            now,
-        );
+        let path =
+            timestamped_history_path_internal(&base, "Prod#Provider", HistoryFormat::Markdown, now);
         assert_eq!(
             path.file_name().unwrap().to_str().unwrap(),
             "20240501-123045-prod-provider.md"

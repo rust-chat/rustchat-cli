@@ -74,6 +74,12 @@ pub struct ConfigSetArgs {
     /// Mark this provider as the default for chat/message commands
     #[arg(long)]
     pub default: bool,
+    /// Encrypt any provided API keys with the passphrase below
+    #[arg(long = "encrypt-secrets")]
+    pub encrypt_secrets: bool,
+    /// Environment variable that stores the master passphrase (defaults to RUSTCHAT_PASSPHRASE)
+    #[arg(long = "secret-env")]
+    pub secret_env: Option<String>,
     #[command(flatten)]
     pub google: GoogleSetArgs,
     #[command(flatten)]
@@ -132,6 +138,12 @@ pub struct CommonChatArgs {
     /// File format to use for history exports
     #[arg(long = "save-format", value_enum, default_value_t = SaveFormatArg::Json)]
     pub save_format: SaveFormatArg,
+    /// Optional webhook URL to receive the chat transcript at the end of the session
+    #[arg(long = "webhook-url")]
+    pub webhook_url: Option<String>,
+    /// Environment variable that stores the master passphrase (defaults to RUSTCHAT_PASSPHRASE)
+    #[arg(long = "secret-env")]
+    pub secret_env: Option<String>,
     /// Optional temperature override
     #[arg(long)]
     pub temperature: Option<f32>,

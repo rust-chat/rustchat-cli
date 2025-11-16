@@ -13,6 +13,8 @@ Terminal-first, multi-provider AI chat CLI with first-class streaming. Gemini is
 - **Unified config + secrets:** `rustchat-cli config set <name> --kind <google|anthropic|openai>` stores multiple credentials, marks defaults, and keeps provider-specific hints.
 - **Streaming chat + single-shot messaging:** `chat` exposes `/reset`, `--system`, `--stream`, and `--save`. `message` sends one prompt without entering the REPL.
 - **Flexible history exports:** choose `--save-format json|markdown`, point to any file via `--save`, or enable `--auto-save` to drop timestamped transcripts under `~/.local/share/rustchat-cli/history` (override via `--history-dir`).
+- **Optional secret encryption:** add `--encrypt-secrets` when running `config set` to store API keys encrypted with `RUSTCHAT_PASSPHRASE` (or any env you point to).
+- **Webhook hand-offs:** finish a chat/message command with `--webhook-url https://...` to POST the final transcript (JSON or Markdown) to another service.
 - **Multiple providers out of the box:** Gemini (service account or API key), Claude (Anthropic Messages API), and OpenAI Chat Completions share the same CLI switches.
 - **Smarter streaming:** Gemini streaming now yields only fresh deltas, preventing duplicate or half-baked tokens. Anthropic/OpenAI streams use the same SSE event parser for consistent output.
 - **npm packaging with prebuilts:** `scripts/postinstall.js` downloads release binaries for Windows/macOS/Linux and falls back to `cargo build --release` when an artifact is missing.
@@ -73,6 +75,15 @@ rustchat config set openai --kind openai --api-key <OPENAI_KEY> --shared-default
 rustchat config show
 ```
 
+To store API keys encrypted, export a passphrase (default env `RUSTCHAT_PASSPHRASE`) before running `config set`:
+
+```powershell
+$env:RUSTCHAT_PASSPHRASE = "my-super-secret"
+rustchat config set openai --kind openai --api-key <OPENAI_KEY> --encrypt-secrets --default
+```
+
+Any later `chat`/`message` command will decrypt the stored key automatically as long as the same environment variable is present. Use `--secret-env CUSTOM_ENV` if you prefer a different variable name for either `config set` or runtime commands.
+
 Minimal TOML example:
 
 ```toml
@@ -115,6 +126,9 @@ rustchat chat --auto-save --save-format markdown
 # Emit a Markdown transcript for a one-off prompt into a custom folder
 rustchat message --auto-save --history-dir C:\logs\rustchat --save-format markdown \
    --provider google --model gemini-2.0-flash "Summarize this conversation"
+
+# POST every transcript (Markdown) to an internal webhook
+rustchat chat --webhook-url https://hooks.example.com/rustchat --save-format markdown
 ```
 
 ### Provider-specific notes
@@ -139,14 +153,13 @@ rustchat message --auto-save --history-dir C:\logs\rustchat --save-format markdo
 ## Known Limitations
 
 - Claude/OpenAI paths compile and stream locally but **have not been verified against live APIs yet**; treat them as beta quality.
-- Auto-saved history currently writes plaintext JSON/Markdown; optional encryption / secrets redaction is still a TODO.
+- Auto-saved history currently writes plaintext JSON/Markdown; encrypting the log files themselves is still a TODO.
 - There is no CI or automated testing pipeline—the short-term focus has been feature velocity.
 
 ## Roadmap
 
 - Add integration tests with mocked SSE streams to lock in parser behavior.
 - Ship CI workflows that build/upload release assets automatically for npm consumers.
-- Extend history exporting beyond flat files (e.g., Discord/webhook sinks).
 - Explore a TUI once the CLI stabilizes.
 
 ---

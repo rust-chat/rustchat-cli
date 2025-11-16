@@ -17,6 +17,7 @@ pub struct ReplOptions {
     pub history_dir: Option<PathBuf>,
     pub auto_save: bool,
     pub save_format: HistoryFormat,
+    pub webhook_url: Option<String>,
     pub request_options: ChatRequestOptions,
     pub stream: bool,
 }
@@ -91,6 +92,17 @@ pub async fn run_chat_repl(provider: DynProvider, opts: ReplOptions) -> Result<(
             eprintln!("[warn] auto-save requested but no history directory is available");
         }
         _ => {}
+    }
+
+    if let Some(url) = opts.webhook_url.as_deref() {
+        if let Err(err) =
+            logger::send_history_webhook(url, opts.save_format, opts.system.as_deref(), &messages)
+                .await
+        {
+            eprintln!("[warn] failed to POST chat history: {err:#}");
+        } else {
+            println!("[pushed chat history to webhook]");
+        }
     }
 
     Ok(())

@@ -3,17 +3,21 @@ mod config;
 mod logger;
 mod provider;
 mod repl;
+mod secrets;
 mod streaming;
 mod utils;
 
 use anyhow::{anyhow, Result};
 use clap::Parser;
 
-use crate::cli::{ChatCommand, Cli, Commands, ConfigCommand, MessageCommand, CommonChatArgs, SaveFormatArg};
+use crate::cli::{
+    ChatCommand, Cli, Commands, CommonChatArgs, ConfigCommand, MessageCommand, SaveFormatArg,
+};
 use crate::config::{build_provider_config, AppConfig, ProviderKind};
 use crate::logger as history_logger;
 use crate::logger::HistoryFormat;
 use crate::provider::{build_provider, ChatMessage, ChatRequestOptions};
+use crate::secrets::{optional_passphrase_from_env, DEFAULT_MASTER_ENV};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -76,7 +80,20 @@ async fn handle_config(cmd: ConfigCommand, cfg: &mut AppConfig) -> Result<()> {
 async fn run_chat(args: ChatCommand, cfg: &AppConfig) -> Result<()> {
     let provider_name = cfg.infer_default_provider(&args.common.provider)?;
     let provider_cfg = cfg.require_provider(&provider_name)?;
-    let provider = build_provider(&provider_name, provider_cfg).await?;
+    let env_label = args
+        .common
+        .secret_env
+        .as_deref()
+        .unwrap_or(DEFAULT_MASTER_ENV);
+    let passphrase =
+        optional_passphrase_from_env(env_label, args.common.secret_env.is_some())?;
+    let provider = build_provider(
+        &provider_name,
+        provider_cfg,
+        passphrase.as_deref(),
+        env_label,
+    )
+    .await?;
     let model = args
         .common
         .model
@@ -102,6 +119,7 @@ async fn run_chat(args: ChatCommand, cfg: &AppConfig) -> Result<()> {
             history_dir: history.history_dir.clone(),
             auto_save: history.auto_save,
             save_format: history.format,
+            webhook_url: args.common.webhook_url.clone(),
             request_options,
             stream: args.stream,
         },
@@ -112,7 +130,20 @@ async fn run_chat(args: ChatCommand, cfg: &AppConfig) -> Result<()> {
 async fn run_message(args: MessageCommand, cfg: &AppConfig) -> Result<()> {
     let provider_name = cfg.infer_default_provider(&args.common.provider)?;
     let provider_cfg = cfg.require_provider(&provider_name)?;
-    let provider = build_provider(&provider_name, provider_cfg).await?;
+    let env_label = args
+        .common
+        .secret_env
+        .as_deref()
+        .unwrap_or(DEFAULT_MASTER_ENV);
+    let passphrase =
+        optional_passphrase_from_env(env_label, args.common.secret_env.is_some())?;
+    let provider = build_provider(
+        &provider_name,
+        provider_cfg,
+        passphrase.as_deref(),
+        env_label,
+    )
+    .await?;
     let model = args
         .common
         .model
@@ -138,10 +169,30 @@ async fn run_message(args: MessageCommand, cfg: &AppConfig) -> Result<()> {
 
     let history = build_history_config(&args.common);
     if let Some(path) = history.resolve_path(&provider_name) {
-        history_logger::save_history(&path, history.format, args.common.system.as_deref(), &messages)?;
+        history_logger::save_history(
+            &path,
+            history.format,
+            args.common.system.as_deref(),
+            &messages,
+        )?;
         println!("[saved chat history to {}]", path.display());
     } else if history.auto_save_request_failed {
         eprintln!("[warn] auto-save requested but no history directory is available");
+    }
+
+    if let Some(url) = args.common.webhook_url.as_deref() {
+        if let Err(err) = history_logger::send_history_webhook(
+            url,
+            history.format,
+            args.common.system.as_deref(),
+            &messages,
+        )
+        .await
+        {
+            eprintln!("[warn] failed to POST chat history: {err:#}");
+        } else {
+            println!("[pushed chat history to webhook]");
+        }
     }
 
     Ok(())

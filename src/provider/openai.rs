@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::config::ApiKeyProviderConfig;
 use crate::provider::{ChatMessage, ChatRequestOptions, MessageRole, Provider};
+use crate::secrets;
 use crate::streaming::ChatStream;
 
 const DEFAULT_BASE_URL: &str = "https://api.openai.com";
@@ -20,11 +21,21 @@ pub struct OpenAiProvider {
 }
 
 impl OpenAiProvider {
-    pub async fn new(name: String, config: ApiKeyProviderConfig) -> Result<Self> {
-        let api_key = config
-            .api_key
-            .clone()
-            .ok_or_else(|| anyhow!("openai provider '{name}' requires --api-key"))?;
+    pub async fn new(
+        name: String,
+        mut config: ApiKeyProviderConfig,
+        passphrase: Option<&str>,
+        env_label: &str,
+    ) -> Result<Self> {
+        let api_key = secrets::require_secret(
+            config.api_key.as_deref(),
+            config.encrypted_api_key.as_ref(),
+            passphrase,
+            env_label,
+            &format!("openai provider '{name}' requires --api-key"),
+        )?;
+        config.api_key = Some(api_key.clone());
+        config.encrypted_api_key = None;
         let client = Client::builder().build()?;
         let base_url = config
             .base_url
@@ -41,7 +52,10 @@ impl OpenAiProvider {
     }
 
     fn endpoint(&self) -> String {
-        format!("{}/v1/chat/completions", self.base_url.trim_end_matches('/'))
+        format!(
+            "{}/v1/chat/completions",
+            self.base_url.trim_end_matches('/')
+        )
     }
 
     fn build_payload(

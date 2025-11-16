@@ -6,6 +6,7 @@ use anyhow::{anyhow, Context, Result};
 use serde::{Deserialize, Serialize};
 
 use crate::cli::ProviderKindArg;
+use crate::secrets::{self, EncryptedSecret, DEFAULT_MASTER_ENV};
 
 pub const APP_DIR: &str = "rustchat-cli";
 const CONFIG_FILE: &str = "config.toml";
@@ -101,7 +102,10 @@ impl ProviderConfig {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct GoogleProviderConfig {
     pub service_account_file: Option<PathBuf>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub api_key: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub encrypted_api_key: Option<EncryptedSecret>,
     pub project_id: Option<String>,
     pub location: Option<String>,
     pub default_model: Option<String>,
@@ -109,7 +113,10 @@ pub struct GoogleProviderConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ApiKeyProviderConfig {
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub api_key: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub encrypted_api_key: Option<EncryptedSecret>,
     pub base_url: Option<String>,
     pub default_model: Option<String>,
 }
@@ -141,38 +148,71 @@ pub fn build_provider_config(
     kind: ProviderKind,
     set: &crate::cli::ConfigSetArgs,
 ) -> Result<ProviderConfig> {
+    let env_label = set.secret_env.as_deref().unwrap_or(DEFAULT_MASTER_ENV);
+    let passphrase = if set.encrypt_secrets {
+        Some(secrets::require_passphrase_from_env(env_label)?)
+    } else {
+        None
+    };
     Ok(match kind {
-        ProviderKind::Google => ProviderConfig::Google(GoogleProviderConfig {
-            service_account_file: set.google.service_account.clone(),
-            api_key: set.shared_api.api_key.clone(),
-            project_id: set.google.project_id.clone(),
-            location: set.google.location.clone(),
-            default_model: set
-                .google
-                .default_model
+        ProviderKind::Google => {
+            let (api_key, encrypted_api_key) = secrets::maybe_encrypt_secret(
+                set.shared_api.api_key.clone(),
+                set.encrypt_secrets,
+                passphrase.as_deref(),
+                env_label,
+            )?;
+            ProviderConfig::Google(GoogleProviderConfig {
+                service_account_file: set.google.service_account.clone(),
+                api_key,
+                encrypted_api_key,
+                project_id: set.google.project_id.clone(),
+                location: set.google.location.clone(),
+                default_model: set
+                    .google
+                    .default_model
+                    .clone()
+                    .or_else(|| set.shared_api.shared_default_model.clone()),
+            })
+        }
+        ProviderKind::Anthropic => {
+            let provided = set
+                .shared_api
+                .api_key
                 .clone()
-                .or_else(|| set.shared_api.shared_default_model.clone()),
-        }),
-        ProviderKind::Anthropic => ProviderConfig::Anthropic(ApiKeyProviderConfig {
-            api_key: Some(
-                set.shared_api
-                    .api_key
-                    .clone()
-                    .ok_or_else(|| anyhow!("--api-key is required for anthropic"))?,
-            ),
-            base_url: set.shared_api.base_url.clone(),
-            default_model: set.shared_api.shared_default_model.clone(),
-        }),
-        ProviderKind::Openai => ProviderConfig::Openai(ApiKeyProviderConfig {
-            api_key: Some(
-                set.shared_api
-                    .api_key
-                    .clone()
-                    .ok_or_else(|| anyhow!("--api-key is required for openai"))?,
-            ),
-            base_url: set.shared_api.base_url.clone(),
-            default_model: set.shared_api.shared_default_model.clone(),
-        }),
+                .ok_or_else(|| anyhow!("--api-key is required for anthropic"))?;
+            let (api_key, encrypted_api_key) = secrets::maybe_encrypt_secret(
+                Some(provided),
+                set.encrypt_secrets,
+                passphrase.as_deref(),
+                env_label,
+            )?;
+            ProviderConfig::Anthropic(ApiKeyProviderConfig {
+                api_key,
+                encrypted_api_key,
+                base_url: set.shared_api.base_url.clone(),
+                default_model: set.shared_api.shared_default_model.clone(),
+            })
+        }
+        ProviderKind::Openai => {
+            let provided = set
+                .shared_api
+                .api_key
+                .clone()
+                .ok_or_else(|| anyhow!("--api-key is required for openai"))?;
+            let (api_key, encrypted_api_key) = secrets::maybe_encrypt_secret(
+                Some(provided),
+                set.encrypt_secrets,
+                passphrase.as_deref(),
+                env_label,
+            )?;
+            ProviderConfig::Openai(ApiKeyProviderConfig {
+                api_key,
+                encrypted_api_key,
+                base_url: set.shared_api.base_url.clone(),
+                default_model: set.shared_api.shared_default_model.clone(),
+            })
+        }
     })
 }
 

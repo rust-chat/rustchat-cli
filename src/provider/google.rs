@@ -17,6 +17,7 @@ use yup_oauth2::{
 
 use crate::config::GoogleProviderConfig;
 use crate::provider::{ChatMessage, ChatRequestOptions, MessageRole, Provider};
+use crate::secrets;
 use crate::streaming::ChatStream;
 
 const BASE_URL: &str = "https://generativelanguage.googleapis.com/v1";
@@ -33,7 +34,21 @@ pub struct GoogleProvider {
 }
 
 impl GoogleProvider {
-    pub async fn new(name: String, config: GoogleProviderConfig) -> Result<Self> {
+    pub async fn new(
+        name: String,
+        mut config: GoogleProviderConfig,
+        passphrase: Option<&str>,
+        env_label: &str,
+    ) -> Result<Self> {
+        let resolved_api_key = secrets::resolve_secret(
+            config.api_key.as_deref(),
+            config.encrypted_api_key.as_ref(),
+            passphrase,
+            env_label,
+        )?;
+        config.api_key = resolved_api_key;
+        config.encrypted_api_key = None;
+
         let client = Client::builder().build()?;
         let authenticator = match config.service_account_file.as_ref() {
             Some(path) => {
@@ -138,12 +153,12 @@ impl GoogleProvider {
                 let mut buffer = String::new();
                 let mut last_snapshot = String::new();
                 pin_mut!(body);
-                
+
                 while let Some(chunk) = body.next().await {
                     let chunk = chunk.context("stream chunk error")?;
                     let text = String::from_utf8_lossy(&chunk);
                     buffer.push_str(&text);
-                    
+
                     while let Some(texts) = Self::try_extract_json(&mut buffer)? {
                         for t in texts {
                             let delta = Self::extract_delta(&mut last_snapshot, &t);
@@ -153,7 +168,7 @@ impl GoogleProvider {
                         }
                     }
                 }
-                
+
                 if !buffer.trim().is_empty() {
                     if let Some(texts) = Self::try_extract_json(&mut buffer)? {
                         for t in texts {
@@ -177,12 +192,12 @@ impl GoogleProvider {
             buffer.clear();
             return Ok(None);
         }
-        
+
         if let Some(stripped) = trimmed.strip_prefix("data:") {
             *buffer = stripped.trim_start().to_string();
             return Self::try_extract_json(buffer);
         }
-        
+
         let first_char = trimmed.chars().next().unwrap();
         if first_char != '{' && first_char != '[' {
             if let Some(pos) = trimmed.find(|c| c == '{' || c == '[') {
@@ -193,19 +208,19 @@ impl GoogleProvider {
                 return Ok(None);
             }
         }
-        
+
         let end_char = if first_char == '{' { '}' } else { ']' };
         let mut depth = 0;
         let mut in_string = false;
         let mut escape = false;
         let mut end_pos = None;
-        
+
         for (i, ch) in trimmed.char_indices() {
             if escape {
                 escape = false;
                 continue;
             }
-            
+
             match ch {
                 '\\' if in_string => escape = true,
                 '"' => in_string = !in_string,
@@ -220,7 +235,7 @@ impl GoogleProvider {
                 _ => {}
             }
         }
-        
+
         if let Some(pos) = end_pos {
             let json_str = &trimmed[..pos];
             let result = Self::parse_stream_payload(json_str)?;
