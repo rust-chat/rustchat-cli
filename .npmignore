@@ -1,7 +1,0 @@
-*
-!dist/
-!dist/**
-!scripts/
-!scripts/**
-!README.md
-!package.json
