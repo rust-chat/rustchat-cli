@@ -1,108 +1,124 @@
 # rustaichat
 
-Terminal-first multi-provider AI chat CLI focused on Gemini for the MVP stage.
+Terminal-first multi-provider AI chat CLI focused on Gemini for the MVP stage. The package includes npm packaging support that compiles the release binary during installation.
 
-## Features (MVP)
+## Overview
 
-- `config` command to add/show/remove provider credentials stored in `~/.config/rustaichat/config.toml` (or platform equivalent).
-- Provider abstraction with a working Google Gemini implementation (service account or API key).
-- `chat` REPL with history reset (`/reset`), optional system prompt, and JSON history export via `--save`.
-- `message` command for one-off prompts without entering the REPL.
-- Basic retry/backoff for Google API calls plus placeholder streaming hooks for MVP+.
+`rustaichat` is a terminal-first Rust CLI that orchestrates multi-provider chats by loading credentials from `~/.config/rustaichat/config.toml`, sending messages to the configured provider, and persisting session history. The MVP ships with Google Gemini support and provides a provider trait for adding Anthropic/OpenAI adapters.
+
+## Features
+
+- Config management & secrets store: `config` command stores multiple provider credentials and exposes `set`, `get`, `list`, and `delete` operations. Example:
+
+  ```powershell
+  rustaichat config set google --api-key <YOUR_KEY> --default
+  ```
+
+- Chat REPL + single-shot messaging: `chat` supports a system prompt, `/reset`, and `--save` for exporting JSON history. `message` sends a one-off request without entering the REPL.
+
+- Provider abstraction: Implementations conform to the trait in `provider/trait_provider.rs`. The repo includes a Google Gemini implementation and stubs for Anthropic/OpenAI.
+
+- Retry/backoff + streaming placeholder: Basic retry/backoff for API calls and a streaming placeholder in `streaming.rs` for future incremental output.
 
 ## Project Layout
 
 ```
 rustaichat/
-├─ Cargo.toml
-├─ README.md
+├─ Cargo.toml              # Rust dependencies + CLI metadata
+├─ README.md               # This document
 ├─ examples/
-│  └─ config.toml           # sample configuration
+│  └─ config.toml          # Example config
 └─ src/
-   ├─ main.rs               # entrypoint / command executor
-   ├─ cli.rs                # clap CLI schema
-   ├─ config.rs             # load/store provider configuration
+   ├─ main.rs              # CLI entrypoint and command dispatch
+   ├─ cli.rs               # clap schema and subcommands
+   ├─ config.rs            # config file load/save and default provider
    ├─ provider/
-   │  ├─ mod.rs             # provider factory + exports
-   │  ├─ trait_provider.rs  # shared provider trait + types
-   │  ├─ google.rs          # Gemini implementation (MVP)
-   │  ├─ anthropic.rs       # stub for Claude
-   │  └─ openai.rs          # stub for OpenAI
-   ├─ repl.rs               # REPL loop + history logic
-   ├─ streaming.rs          # placeholder streaming helpers
-   ├─ logger.rs             # chat history persistence helpers
-   └─ utils.rs              # path helpers
+   │  ├─ mod.rs            # factory and exports
+   │  ├─ trait_provider.rs # common provider trait
+   │  ├─ google.rs         # Gemini MVP implementation
+   │  ├─ anthropic.rs      # Anthropic stub
+   │  └─ openai.rs         # OpenAI stub
+   ├─ repl.rs              # REPL loop and history logic
+   ├─ streaming.rs         # streaming helpers (placeholder)
+   ├─ logger.rs            # history persistence helpers
+   └─ utils.rs             # path/file helpers
 ```
 
-## Getting Started
+## Quick Start
 
-1. Install a recent Rust toolchain (`1.75+` recommended).
-2. Build the CLI:
+1. Install a recent Rust toolchain (1.75+ recommended).
 
 ```powershell
-cargo build
+rustup toolchain install stable
 ```
 
-3. Configure the Google provider. With a service account JSON file:
+2. Build the CLI locally:
 
 ```powershell
-rustaichat config set google --service-account C:\path\to\sa.json --project-id my-project --default
+cargo build --release
 ```
 
-   Or with an API key (uses Gemini REST key):
+3. Register provider credentials (example for Google Gemini):
 
 ```powershell
-rustaichat config set google --api-key your_api_key_here --default
+rustaichat config set google --api-key <YOUR_KEY> --default
 ```
 
-4. Start chatting:
+4. Start the chat REPL:
 
 ```powershell
 rustaichat chat --model gemini-2.0-flash
 ```
 
-5. Send a single message without the REPL (pass `--provider` unless you have already set a default):
+5. Send a single message without the REPL:
 
 ```powershell
 rustaichat message --provider google --model gemini-2.0-flash "Hello Gemini"
 ```
 
-### npm installation (optional)
+## npm Packaging
 
-Once published to npm, the CLI can be installed globally:
+### Installation
+
+This package is published on npm and is available now. Install the CLI globally with:
 
 ```powershell
 npm install -g rustaichat
 rustaichat chat --model gemini-2.0-flash
 ```
 
-> The npm package builds the Rust binary during installation, so make sure the Rust toolchain (`cargo`) is available on the target machine.
+The package runs `scripts/postinstall.js`, which will call `cargo build --release` to build the binary if a prebuilt executable for your platform is not bundled. If the postinstall step needs to compile from source, ensure a Rust toolchain (`cargo`) is available on the machine.
 
-To test locally before publishing, run:
+To test locally before publishing:
 
 ```powershell
 npm install -g .
 ```
 
-### Publishing to npm
+### Publishing
 
-1. Ensure the version in `package.json` matches `Cargo.toml` and bump as needed (`npm version patch`).
-2. Run the test build locally (`npm install`) to confirm the installer compiles the binary.
-3. Authenticate with npm (`npm login`) and publish: `npm publish --access public`.
-4. Consumers can then `npm install -g rustaichat` to get the CLI.
+1. Ensure `Cargo.toml` and `package.json` `version` fields match.
+2. Verify local build: `npm install` or `npm install -g .` to confirm `postinstall` runs `cargo build`.
+3. `npm login` and `npm publish --access public` to publish the package.
 
-### Configuration Notes
+## Configuration
 
+- Config file location: `~/.config/rustaichat/config.toml` (on Windows use `%APPDATA%\rustaichat\config.toml`).
+- Example config: see `examples/config.toml` for fields like `default_project`, `model`, and `service_account`.
+- Commands: `rustaichat config list`, `rustaichat config get <provider>`, `rustaichat config delete <provider>`.
 
-### Gemini Authentication Tips
+## Gemini Authentication Tips
 
-- Service account mode requests an OAuth token with the `https://www.googleapis.com/auth/generative-language` scope.
-- Ensure the service account has the *Generative Language API User* role within your GCP project and the Gemini API is enabled.
-- API key mode works with the standard `generativelanguage.googleapis.com` key; keep keys secret and never commit them.
+- Service account: request OAuth tokens with the `https://www.googleapis.com/auth/generative-language` scope and grant the service account the *Generative Language API User* role in GCP.
+- API key: use a `generativelanguage.googleapis.com` API key and keep it secret.
 
 ## Next Steps
 
-- Implement true streaming responses (`reqwest::bytes_stream`) and incremental REPL output.
-- Flesh out Anthropic and OpenAI providers using the shared trait.
-- Add unit tests around config parsing and provider adapters.
-- Provide optional encrypted storage for secrets.
+- Implement streaming via `reqwest::bytes_stream` and incremental REPL output.
+- Complete Anthropic and OpenAI provider implementations.
+- Add unit tests for config parsing, provider adapters, and REPL history rotation.
+- Add CI packaging tests that run `npm install` and maintain release notes.
+
+---
+
+*English-only documentation for the Rust CLI, provider configuration, and npm packaging workflows.*

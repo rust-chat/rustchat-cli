@@ -1,14 +1,13 @@
 {
   "name": "rustaichat",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Terminal-based multi-provider AI chat CLI (Gemini-first) built in Rust",
   "license": "MIT",
   "bin": {
     "rustaichat": "scripts/run.js"
   },
   "scripts": {
-    "postinstall": "node scripts/postinstall.js",
-    "build": "cargo build --release"
+    "postinstall": "node scripts/postinstall.js"
   },
   "files": [
     "scripts",
