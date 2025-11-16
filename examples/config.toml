@@ -1,0 +1,18 @@
+default_provider = "google"
+
+[providers.google]
+type = "google"
+service_account_file = "/home/user/.config/rustaichat/google-sa.json"
+default_model = "gemini-pro"
+project_id = "my-gcp-project"
+location = "us-central1"
+
+[providers.anthropic]
+type = "anthropic"
+api_key = "replace-with-anthropic-key"
+default_model = "claude-4-5-sonet"
+
+[providers.openai]
+type = "openai"
+api_key = "replace-with-openai-key"
+default_model = "gpt-5"

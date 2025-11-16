@@ -1,0 +1,42 @@
+{
+  "name": "rustaichat",
+  "version": "0.1.0",
+  "description": "Terminal-based multi-provider AI chat CLI (Gemini-first) built in Rust",
+  "license": "MIT",
+  "bin": {
+    "rustaichat": "scripts/run.js"
+  },
+  "scripts": {
+    "postinstall": "node scripts/postinstall.js",
+    "build": "cargo build --release"
+  },
+  "files": [
+    "scripts",
+    "dist",
+    "Cargo.toml",
+    "Cargo.lock",
+    "src",
+    "README.md",
+    "examples"
+  ],
+  "keywords": [
+    "cli",
+    "ai",
+    "chat",
+    "gemini",
+    "anthropic",
+    "openai",
+    "rust"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/wnsdud-jy/rustaichat.git"
+  },
+  "bugs": {
+    "url": "https://github.com/wnsdud-jy/rustaichat/issues"
+  },
+  "homepage": "https://github.com/wnsdud-jy/rustaichat#readme"
+}

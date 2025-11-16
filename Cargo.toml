@@ -1,0 +1,25 @@
+[package]
+name = "rustaichat"
+version = "0.1.0"
+edition = "2021"
+authors = ["rustaichat maintainers"]
+license = "MIT"
+description = "Terminal-based multi-provider AI chat CLI"
+
+[dependencies]
+anyhow = "1"
+async-trait = "0.1"
+clap = { version = "4", features = ["derive"] }
+dirs = "5"
+futures = "0.3"
+reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "1"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "fs", "time"] }
+toml = "0.8"
+rustyline = "13"
+yup-oauth2 = { version = "8", features = ["service_account"] }
+hyper = { version = "0.14", features = ["full"] }
+hyper-rustls = "0.24"
+parking_lot = "0.12"

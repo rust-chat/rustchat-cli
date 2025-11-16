@@ -1,0 +1,43 @@
+# Rust build directory
+/target/
+
+# Backup files created by some editors
+**/*.rs.bk
+
+# Logs and runtime files
+*.log
+*.pid
+
+# Environment files
+.env
+.env.*
+
+# Secret keys and credentials
+*.key
+*.pem
+*.secret
+*.private
+*.service_account.json
+*_sa.json
+
+# IDE / Editor directories
+.vscode/
+.idea/
+*.suo
+*.user
+*.swp
+*~
+
+# macOS
+.DS_Store
+
+# Misc
+/build/
+/dist/
+
+# Node / npm artifacts
+node_modules/
+npm-debug.log*
+package-lock.json
+
+d.md
