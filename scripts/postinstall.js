@@ -8,7 +8,6 @@ const REPO = 'rustaichat';
 
 function mapAssetName() {
     const plat = process.platform; // 'win32', 'linux', 'darwin'
-    const arch = process.arch;     // 'x64', 'arm64'
 
     if (plat === 'win32') return 'rustaichat-windows-x86_64.exe';
     if (plat === 'linux') return 'rustaichat-linux-x86_64';
@@ -34,15 +33,17 @@ function downloadAsset(assetName, destPath) {
 }
 
 async function main() {
-    console.log('[rustaichat] Installing prebuilt binary if available...');
-    const asset = mapAssetName();
-    const distDir = path.join(__dirname, '..', 'dist');
-    if (!fs.existsSync(distDir)) fs.mkdirSync(distDir, { recursive: true });
+    console.log('[rustaichat] Installing prebuilt binary for current OS...');
 
+    const asset = mapAssetName();
     if (!asset) {
-        console.warn('[rustaichat] Unsupported platform/arch. Skipping automatic install.');
+        console.warn('[rustaichat] Unsupported platform. Skipping install.');
         return;
     }
+
+    // OS별 폴더로 저장
+    const distDir = path.join(__dirname, '..', 'dist', process.platform);
+    if (!fs.existsSync(distDir)) fs.mkdirSync(distDir, { recursive: true });
 
     const targetName = asset.endsWith('.exe') ? 'rustaichat.exe' : 'rustaichat';
     const dest = path.join(distDir, targetName);
@@ -52,8 +53,8 @@ async function main() {
         if (process.platform !== 'win32') fs.chmodSync(dest, 0o755);
         console.log(`[rustaichat] Installed ${targetName} -> ${dest}`);
     } catch (err) {
-        console.warn('[rustaichat] Could not download prebuilt binary:', err.message);
-        console.log('[rustaichat] Attempting local build with `cargo build --release`...');
+        console.warn('[rustaichat] Download failed:', err.message);
+        console.log('[rustaichat] Attempting local build...');
 
         try {
             execSync('cargo build --release', { stdio: 'inherit' });
@@ -67,8 +68,8 @@ async function main() {
             } else {
                 console.warn('[rustaichat] Local build completed but binary not found.');
             }
-        } catch (buildErr) {
-            console.warn('[rustaichat] Local build failed or cargo not available. Skipping.');
+        } catch {
+            console.warn('[rustaichat] Local build failed. Skipping.');
         }
     }
 }

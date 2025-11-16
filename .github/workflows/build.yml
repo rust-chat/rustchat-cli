@@ -1,0 +1,70 @@
+name: Build & Release rustaichat
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'   # 버전 태그 푸시 시 실행
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    strategy:
+      matrix:
+        target: [x86_64-pc-windows-msvc, x86_64-unknown-linux-gnu, x86_64-apple-darwin]
+        include:
+          - target: x86_64-pc-windows-msvc
+            output: rustaichat-windows-x86_64.exe
+          - target: x86_64-unknown-linux-gnu
+            output: rustaichat-linux-x86_64
+          - target: x86_64-apple-darwin
+            output: rustaichat-macos-x86_64
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v3
+
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          target: ${{ matrix.target }}
+          override: true
+
+      - name: Install cross build tools (Linux/macOS targets on Windows)
+        if: matrix.target != 'x86_64-pc-windows-msvc'
+        run: |
+          choco install mingw -y
+
+      - name: Build release binary
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Copy binary to dist folder
+        run: |
+          mkdir -p dist/${{ matrix.target }}
+          copy target/${{ matrix.target }}/release/rustaichat* dist/${{ matrix.target }}/
+        shell: powershell
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: ${{ matrix.output }}
+          path: dist/${{ matrix.target }}/
+          
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v3
+        with:
+          path: dist
+
+      - name: Create GitHub Release
+        uses: ncipollo/release-action@v1
+        with:
+          artifacts: |
+            dist/x86_64-pc-windows-msvc/*
+            dist/x86_64-unknown-linux-gnu/*
+            dist/x86_64-apple-darwin/*
+          tag: ${{ github.ref_name }}
