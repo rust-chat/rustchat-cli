@@ -11,21 +11,35 @@ const platformMap = {
 
 const platDir = platformMap[process.platform];
 if (!platDir) {
-    console.error('[rustaichat] Unsupported platform');
-    process.exit(1);
+  console.error('[rustaichat] Unsupported platform');
+  process.exit(1);
 }
 
 const distDir = path.join(__dirname, '..', 'dist', platDir);
-const binaryName = process.platform === 'win32' ? 'rustaichat.exe' : 'rustaichat';
-const binaryPath = path.join(distDir, binaryName);
 
-if (!fs.existsSync(binaryPath)) {
-    console.error(`[rustaichat] Binary not found at ${binaryPath}`);
-    process.exit(1);
+// Windows에서 실제 존재하는 exe 파일 찾기
+let binaryName;
+if (process.platform === 'win32') {
+  const candidates = ['rustaichat.exe', 'rustaichat-windows-x86_64.exe'];
+  binaryName = candidates.find(f => fs.existsSync(path.join(distDir, f)));
+} else if (process.platform === 'linux') {
+  const candidates = ['rustaichat-linux-x86_64'];
+  binaryName = candidates.find(f => fs.existsSync(path.join(distDir, f)));
+} else if (process.platform === 'darwin') {
+  const candidates = ['rustaichat-macos-x86_64'];
+  binaryName = candidates.find(f => fs.existsSync(path.join(distDir, f)));
 }
 
+if (!binaryName) {
+  console.error(`[rustaichat] Binary not found in ${distDir}`);
+  process.exit(1);
+}
+
+const binaryPath = path.join(distDir, binaryName);
+
 const child = spawn(binaryPath, process.argv.slice(2), { stdio: 'inherit', env: process.env });
+
 child.on('exit', (code, signal) => {
-    if (signal) process.kill(process.pid, signal);
-    else process.exit(code ?? 0);
+  if (signal) process.kill(process.pid, signal);
+  else process.exit(code ?? 0);
 });
