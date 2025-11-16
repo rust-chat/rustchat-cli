@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::cli::ProviderKindArg;
 
-const APP_DIR: &str = "rustaichat";
+pub const APP_DIR: &str = "rustchat-cli";
 const CONFIG_FILE: &str = "config.toml";
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

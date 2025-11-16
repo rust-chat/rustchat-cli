@@ -9,8 +9,10 @@ mod utils;
 use anyhow::{anyhow, Result};
 use clap::Parser;
 
-use crate::cli::{ChatCommand, Cli, Commands, ConfigCommand, MessageCommand};
+use crate::cli::{ChatCommand, Cli, Commands, ConfigCommand, MessageCommand, CommonChatArgs, SaveFormatArg};
 use crate::config::{build_provider_config, AppConfig, ProviderKind};
+use crate::logger as history_logger;
+use crate::logger::HistoryFormat;
 use crate::provider::{build_provider, ChatMessage, ChatRequestOptions};
 
 #[tokio::main]
@@ -85,12 +87,21 @@ async fn run_chat(args: ChatCommand, cfg: &AppConfig) -> Result<()> {
         temperature: args.common.temperature,
         max_output_tokens: args.common.max_output_tokens,
     };
+    let history = build_history_config(&args.common);
+    if history.auto_save_request_failed {
+        eprintln!("[warn] auto-save requested but no history directory is available");
+    }
+
     repl::run_chat_repl(
         provider,
         repl::ReplOptions {
+            provider_name,
             model,
             system: args.common.system.clone(),
-            save_path: args.common.save_path.clone(),
+            save_path: history.explicit_path.clone(),
+            history_dir: history.history_dir.clone(),
+            auto_save: history.auto_save,
+            save_format: history.format,
             request_options,
             stream: args.stream,
         },
@@ -125,10 +136,63 @@ async fn run_message(args: MessageCommand, cfg: &AppConfig) -> Result<()> {
     println!("{response}");
     messages.push(ChatMessage::assistant(response.clone()));
 
-    if let Some(path) = args.common.save_path.as_ref() {
-        logger::save_history(path, args.common.system.as_deref(), &messages)?;
+    let history = build_history_config(&args.common);
+    if let Some(path) = history.resolve_path(&provider_name) {
+        history_logger::save_history(&path, history.format, args.common.system.as_deref(), &messages)?;
         println!("[saved chat history to {}]", path.display());
+    } else if history.auto_save_request_failed {
+        eprintln!("[warn] auto-save requested but no history directory is available");
     }
 
     Ok(())
+}
+
+struct HistoryConfig {
+    explicit_path: Option<std::path::PathBuf>,
+    history_dir: Option<std::path::PathBuf>,
+    auto_save: bool,
+    format: HistoryFormat,
+    auto_save_request_failed: bool,
+}
+
+impl HistoryConfig {
+    fn resolve_path(&self, provider_name: &str) -> Option<std::path::PathBuf> {
+        if let Some(path) = &self.explicit_path {
+            return Some(path.clone());
+        }
+        if self.auto_save {
+            if let Some(dir) = &self.history_dir {
+                return Some(history_logger::timestamped_history_path(
+                    dir,
+                    provider_name,
+                    self.format,
+                ));
+            }
+        }
+        None
+    }
+}
+
+fn build_history_config(args: &CommonChatArgs) -> HistoryConfig {
+    let format = match args.save_format {
+        SaveFormatArg::Json => HistoryFormat::Json,
+        SaveFormatArg::Markdown => HistoryFormat::Markdown,
+    };
+    let history_dir = args
+        .history_dir
+        .clone()
+        .or_else(|| history_logger::default_history_dir());
+    let mut auto_save = args.auto_save;
+    let mut auto_save_request_failed = false;
+    if auto_save && history_dir.is_none() {
+        auto_save = false;
+        auto_save_request_failed = true;
+    }
+    HistoryConfig {
+        explicit_path: args.save_path.clone(),
+        history_dir,
+        auto_save,
+        format,
+        auto_save_request_failed,
+    }
 }

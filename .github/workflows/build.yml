@@ -1,4 +1,4 @@
-name: Build & Release rustaichat
+name: Build & Release rustchat-cli
 
 on:
   push:
@@ -15,13 +15,13 @@ jobs:
         include:
           - os: windows-latest
             target: x86_64-pc-windows-msvc
-            output: rustaichat-windows-x86_64.exe
+            output: rustchat-cli-windows-x86_64.exe
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
-            output: rustaichat-linux-x86_64
+            output: rustchat-cli-linux-x86_64
           - os: macos-latest
             target: x86_64-apple-darwin
-            output: rustaichat-macos-x86_64
+            output: rustchat-cli-macos-x86_64
 
     runs-on: ${{ matrix.os }}
 
@@ -41,13 +41,13 @@ jobs:
         if: matrix.os == 'windows-latest'
         run: |
           mkdir dist
-          copy target\${{ matrix.target }}\release\rustaichat.exe dist\${{ matrix.output }}
+          copy target\${{ matrix.target }}\release\rustchat-cli.exe dist\${{ matrix.output }}
 
       - name: Prepare artifact (Unix)
         if: matrix.os != 'windows-latest'
         run: |
           mkdir -p dist
-          cp target/${{ matrix.target }}/release/rustaichat dist/${{ matrix.output }}
+          cp target/${{ matrix.target }}/release/rustchat-cli dist/${{ matrix.output }}
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4

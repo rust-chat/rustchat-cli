@@ -3,15 +3,16 @@ const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
 
-const OWNER = 'wnsdud-jy';
-const REPO = 'rustaichat';
+const OWNER = 'rust-chat';
+const REPO = 'rustchat-cli';
+const PACKAGE = 'rustchat-cli';
 
 function mapAssetName() {
     const plat = process.platform; // 'win32', 'linux', 'darwin'
 
-    if (plat === 'win32') return 'rustaichat-windows-x86_64.exe';
-    if (plat === 'linux') return 'rustaichat-linux-x86_64';
-    if (plat === 'darwin') return 'rustaichat-macos-x86_64';
+    if (plat === 'win32') return 'rustchat-cli-windows-x86_64.exe';
+    if (plat === 'linux') return 'rustchat-cli-linux-x86_64';
+    if (plat === 'darwin') return 'rustchat-cli-macos-x86_64';
 
     return null;
 }
@@ -33,11 +34,11 @@ function downloadAsset(assetName, destPath) {
 }
 
 async function main() {
-    console.log('[rustaichat] Installing prebuilt binary for current OS...');
+    console.log(`[${PACKAGE}] Installing prebuilt binary for current OS...`);
 
     const asset = mapAssetName();
     if (!asset) {
-        console.warn('[rustaichat] Unsupported platform. Skipping install.');
+        console.warn(`[${PACKAGE}] Unsupported platform. Skipping install.`);
         return;
     }
 
@@ -45,33 +46,33 @@ async function main() {
     const distDir = path.join(__dirname, '..', 'dist', process.platform);
     if (!fs.existsSync(distDir)) fs.mkdirSync(distDir, { recursive: true });
 
-    const targetName = asset.endsWith('.exe') ? 'rustaichat.exe' : 'rustaichat';
+    const targetName = asset.endsWith('.exe') ? 'rustchat-cli.exe' : 'rustchat-cli';
     const dest = path.join(distDir, targetName);
 
     try {
         await downloadAsset(asset, dest);
         if (process.platform !== 'win32') fs.chmodSync(dest, 0o755);
-        console.log(`[rustaichat] Installed ${targetName} -> ${dest}`);
+        console.log(`[${PACKAGE}] Installed ${targetName} -> ${dest}`);
     } catch (err) {
-        console.warn('[rustaichat] Download failed:', err.message);
-        console.log('[rustaichat] Attempting local build...');
+        console.warn(`[${PACKAGE}] Download failed:`, err.message);
+        console.log(`[${PACKAGE}] Attempting local build...`);
 
         try {
             execSync('cargo build --release', { stdio: 'inherit' });
-            const builtName = process.platform === 'win32' ? 'rustaichat.exe' : 'rustaichat';
+            const builtName = process.platform === 'win32' ? 'rustchat-cli.exe' : 'rustchat-cli';
             const builtPath = path.join(__dirname, '..', 'target', 'release', builtName);
 
             if (fs.existsSync(builtPath)) {
                 fs.copyFileSync(builtPath, dest);
                 if (process.platform !== 'win32') fs.chmodSync(dest, 0o755);
-                console.log(`[rustaichat] Local build copied to ${dest}`);
+                console.log(`[${PACKAGE}] Local build copied to ${dest}`);
             } else {
-                console.warn('[rustaichat] Local build completed but binary not found.');
+                console.warn(`[${PACKAGE}] Local build completed but binary not found.`);
             }
         } catch {
-            console.warn('[rustaichat] Local build failed. Skipping.');
+            console.warn(`[${PACKAGE}] Local build failed. Skipping.`);
         }
     }
 }
 
-main().catch(err => console.error('[rustaichat] postinstall error:', err));
+main().catch(err => console.error(`[${PACKAGE}] postinstall error:`, err));

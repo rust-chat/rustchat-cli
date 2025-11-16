@@ -1,10 +1,10 @@
 {
-  "name": "rustaichat",
-  "version": "0.2.0",
+  "name": "rustchat-cli",
+  "version": "0.3.0",
   "description": "Terminal-based multi-provider AI chat CLI (Gemini-first) built in Rust",
   "license": "MIT",
   "bin": {
-    "rustaichat": "scripts/run.js"
+    "rustchat": "scripts/run.js"
   },
   "scripts": {
     "postinstall": "node scripts/postinstall.js"
@@ -32,10 +32,10 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/wnsdud-jy/rustaichat.git"
+    "url": "git+https://github.com/wnsdud-jy/rustchat-cli.git"
   },
   "bugs": {
-    "url": "https://github.com/wnsdud-jy/rustaichat/issues"
+    "url": "https://github.com/wnsdud-jy/rustchat-cli/issues"
   },
-  "homepage": "https://github.com/wnsdud-jy/rustaichat#readme"
+  "homepage": "https://github.com/wnsdud-jy/rustchat-cli#readme"
 }

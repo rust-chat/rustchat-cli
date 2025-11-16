@@ -2,7 +2,7 @@ default_provider = "google"
 
 [providers.google]
 type = "google"
-service_account_file = "/home/user/.config/rustaichat/google-sa.json"
+service_account_file = "/home/user/.config/rustchat-cli/google-sa.json"
 default_model = "gemini-pro"
 project_id = "my-gcp-project"
 location = "us-central1"

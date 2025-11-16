@@ -4,7 +4,7 @@ use clap::{Args, Parser, Subcommand, ValueEnum};
 
 #[derive(Parser, Debug)]
 #[command(
-    name = "rustaichat",
+    name = "rustchat-cli",
     version,
     author,
     about = "Multi-provider AI chat CLI"
@@ -45,6 +45,12 @@ pub enum ProviderKindArg {
     Google,
     Anthropic,
     Openai,
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum, PartialEq, Eq)]
+pub enum SaveFormatArg {
+    Json,
+    Markdown,
 }
 
 impl ProviderKindArg {
@@ -114,9 +120,18 @@ pub struct CommonChatArgs {
     /// Optional system prompt / persona
     #[arg(long)]
     pub system: Option<String>,
-    /// Path to save chat history (JSON). When omitted, no persistence
+    /// Path to save chat history (respects --save-format). When omitted, no persistence
     #[arg(long = "save")]
     pub save_path: Option<PathBuf>,
+    /// Directory used when --auto-save is enabled
+    #[arg(long = "history-dir")]
+    pub history_dir: Option<PathBuf>,
+    /// Automatically write each session to a timestamped file under --history-dir
+    #[arg(long = "auto-save")]
+    pub auto_save: bool,
+    /// File format to use for history exports
+    #[arg(long = "save-format", value_enum, default_value_t = SaveFormatArg::Json)]
+    pub save_format: SaveFormatArg,
     /// Optional temperature override
     #[arg(long)]
     pub temperature: Option<f32>,

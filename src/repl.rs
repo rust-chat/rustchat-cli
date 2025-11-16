@@ -6,13 +6,17 @@ use futures::StreamExt;
 use rustyline::error::ReadlineError;
 use rustyline::DefaultEditor;
 
-use crate::logger;
+use crate::logger::{self, HistoryFormat};
 use crate::provider::{ChatMessage, ChatRequestOptions, DynProvider};
 
 pub struct ReplOptions {
+    pub provider_name: String,
     pub model: String,
     pub system: Option<String>,
     pub save_path: Option<PathBuf>,
+    pub history_dir: Option<PathBuf>,
+    pub auto_save: bool,
+    pub save_format: HistoryFormat,
     pub request_options: ChatRequestOptions,
     pub stream: bool,
 }
@@ -78,10 +82,32 @@ pub async fn run_chat_repl(provider: DynProvider, opts: ReplOptions) -> Result<(
         }
     }
 
-    if let Some(path) = opts.save_path.as_ref() {
-        logger::save_history(path, opts.system.as_deref(), &messages)?;
-        println!("[saved chat history to {}]", path.display());
+    match resolve_history_target(&opts) {
+        Some(path) => {
+            logger::save_history(&path, opts.save_format, opts.system.as_deref(), &messages)?;
+            println!("[saved chat history to {}]", path.display());
+        }
+        None if opts.auto_save => {
+            eprintln!("[warn] auto-save requested but no history directory is available");
+        }
+        _ => {}
     }
 
     Ok(())
+}
+
+fn resolve_history_target(opts: &ReplOptions) -> Option<PathBuf> {
+    if let Some(path) = opts.save_path.as_ref() {
+        return Some(path.clone());
+    }
+    if opts.auto_save {
+        if let Some(dir) = opts.history_dir.as_ref() {
+            return Some(logger::timestamped_history_path(
+                dir,
+                &opts.provider_name,
+                opts.save_format,
+            ));
+        }
+    }
+    None
 }
