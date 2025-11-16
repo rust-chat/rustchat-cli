@@ -1,17 +1,23 @@
 use std::sync::Arc;
 
 use anyhow::{anyhow, Context, Result};
+use async_stream::try_stream;
 use async_trait::async_trait;
+use futures::{pin_mut, StreamExt};
 use hyper::client::HttpConnector;
 use hyper_rustls::HttpsConnector;
 use parking_lot::Mutex;
-use reqwest::Client;
+use reqwest::{Client, Response, StatusCode};
 use serde::{Deserialize, Serialize};
 use tokio::time::{sleep, Duration};
-use yup_oauth2::{authenticator::Authenticator, read_service_account_key, AccessToken, ServiceAccountAuthenticator};
+use yup_oauth2::{
+    authenticator::Authenticator, read_service_account_key, AccessToken,
+    ServiceAccountAuthenticator,
+};
 
 use crate::config::GoogleProviderConfig;
 use crate::provider::{ChatMessage, ChatRequestOptions, MessageRole, Provider};
+use crate::streaming::ChatStream;
 
 const BASE_URL: &str = "https://generativelanguage.googleapis.com/v1";
 const GENERATIVE_SCOPE: &str = "https://www.googleapis.com/auth/generative-language";
@@ -31,9 +37,9 @@ impl GoogleProvider {
         let client = Client::builder().build()?;
         let authenticator = match config.service_account_file.as_ref() {
             Some(path) => {
-                let key = read_service_account_key(path)
-                    .await
-                    .with_context(|| format!("failed to read service account JSON at {}", path.display()))?;
+                let key = read_service_account_key(path).await.with_context(|| {
+                    format!("failed to read service account JSON at {}", path.display())
+                })?;
                 let auth = ServiceAccountAuthenticator::builder(key)
                     .build()
                     .await
@@ -65,7 +71,11 @@ impl GoogleProvider {
         }
         let auth = match &self.authenticator {
             Some(a) => a,
-            None => return Err(anyhow!("service account not configured for google provider")),
+            None => {
+                return Err(anyhow!(
+                    "service account not configured for google provider"
+                ))
+            }
         };
 
         {
@@ -100,28 +110,153 @@ impl GoogleProvider {
         payload: &GeminiRequest,
     ) -> Result<GeminiResponse> {
         let url = format!("{BASE_URL}/models/{model}:generateContent");
+        self.with_retries(&url, payload, |response| async move {
+            let response = response.error_for_status().context("google api error")?;
+            let payload: GeminiResponse = response
+                .json()
+                .await
+                .context("failed to deserialize gemini response")?;
+            Ok(payload)
+        })
+        .await
+    }
+
+    async fn execute_stream_request(
+        &self,
+        model: &str,
+        payload: &GeminiRequest,
+    ) -> Result<ChatStream> {
+        let url = format!("{BASE_URL}/models/{model}:streamGenerateContent");
+        self.with_retries(&url, payload, |response| async move {
+            if !response.status().is_success() {
+                let status = response.status();
+                let text = response.text().await.unwrap_or_default();
+                return Err(anyhow!("google stream api error {status}: {text}"));
+            }
+            let body = response.bytes_stream();
+            let stream = try_stream! {
+                let mut buffer = String::new();
+                pin_mut!(body);
+                
+                while let Some(chunk) = body.next().await {
+                    let chunk = chunk.context("stream chunk error")?;
+                    let text = String::from_utf8_lossy(&chunk);
+                    buffer.push_str(&text);
+                    
+                    while let Some(texts) = Self::try_extract_json(&mut buffer)? {
+                        for t in texts {
+                            if !t.is_empty() {
+                                yield t;
+                            }
+                        }
+                    }
+                }
+                
+                if !buffer.trim().is_empty() {
+                    if let Some(texts) = Self::try_extract_json(&mut buffer)? {
+                        for t in texts {
+                            if !t.is_empty() {
+                                yield t;
+                            }
+                        }
+                    }
+                }
+            };
+
+            Ok(Box::pin(stream) as ChatStream)
+        })
+        .await
+    }
+
+    fn try_extract_json(buffer: &mut String) -> Result<Option<Vec<String>>> {
+        let trimmed = buffer.trim_start();
+        if trimmed.is_empty() {
+            buffer.clear();
+            return Ok(None);
+        }
+        
+        if let Some(stripped) = trimmed.strip_prefix("data:") {
+            *buffer = stripped.trim_start().to_string();
+            return Self::try_extract_json(buffer);
+        }
+        
+        let first_char = trimmed.chars().next().unwrap();
+        if first_char != '{' && first_char != '[' {
+            if let Some(pos) = trimmed.find(|c| c == '{' || c == '[') {
+                *buffer = trimmed[pos..].to_string();
+                return Self::try_extract_json(buffer);
+            } else {
+                buffer.clear();
+                return Ok(None);
+            }
+        }
+        
+        let end_char = if first_char == '{' { '}' } else { ']' };
+        let mut depth = 0;
+        let mut in_string = false;
+        let mut escape = false;
+        let mut end_pos = None;
+        
+        for (i, ch) in trimmed.char_indices() {
+            if escape {
+                escape = false;
+                continue;
+            }
+            
+            match ch {
+                '\\' if in_string => escape = true,
+                '"' => in_string = !in_string,
+                c if c == first_char && !in_string => depth += 1,
+                c if c == end_char && !in_string => {
+                    depth -= 1;
+                    if depth == 0 {
+                        end_pos = Some(i + ch.len_utf8());
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+        
+        if let Some(pos) = end_pos {
+            let json_str = &trimmed[..pos];
+            let result = Self::parse_stream_payload(json_str)?;
+            *buffer = trimmed[pos..].to_string();
+            Ok(Some(result))
+        } else {
+            Ok(None)
+        }
+    }
+
+    async fn with_retries<F, Fut, T>(
+        &self,
+        url: &str,
+        payload: &GeminiRequest,
+        handler: F,
+    ) -> Result<T>
+    where
+        F: Fn(Response) -> Fut,
+        Fut: std::future::Future<Output = Result<T>>,
+    {
         let mut last_err: Option<anyhow::Error> = None;
 
         for attempt in 0..3 {
-            let mut request = self.client.post(&url).json(payload);
-            if let Some(key) = &self.config.api_key {
-                request = request.query(&[("key", key)]);
-            } else if let Some(token) = self.ensure_token().await? {
-                request = request.bearer_auth(token);
-            }
+            let mut request = self.client.post(url).json(payload);
+            request = self.apply_auth(request).await?;
 
             match request.send().await {
                 Ok(response) => {
-                    if response.status().as_u16() == 429 && attempt < 2 {
+                    if response.status() == StatusCode::TOO_MANY_REQUESTS && attempt < 2 {
                         sleep(Duration::from_millis(500 * (attempt as u64 + 1))).await;
                         continue;
                     }
-                    let response = response.error_for_status().context("google api error")?;
-                    let payload: GeminiResponse = response
-                        .json()
-                        .await
-                        .context("failed to deserialize gemini response")?;
-                    return Ok(payload);
+                    match handler(response).await {
+                        Ok(value) => return Ok(value),
+                        Err(err) => {
+                            last_err = Some(err);
+                            break;
+                        }
+                    }
                 }
                 Err(err) => {
                     last_err = Some(err.into());
@@ -132,21 +267,30 @@ impl GoogleProvider {
 
         Err(last_err.unwrap_or_else(|| anyhow!("failed to call google api")))
     }
-}
 
-#[async_trait]
-impl Provider for GoogleProvider {
-    async fn chat(
+    async fn apply_auth(
         &self,
-        model: &str,
+        request: reqwest::RequestBuilder,
+    ) -> Result<reqwest::RequestBuilder> {
+        if let Some(key) = &self.config.api_key {
+            Ok(request.query(&[("key", key)]))
+        } else if let Some(token) = self.ensure_token().await? {
+            Ok(request.bearer_auth(token))
+        } else {
+            Err(anyhow!("google provider '{}' lacks credentials", self.name))
+        }
+    }
+
+    fn build_payload(
+        &self,
         system: Option<&str>,
         messages: &[ChatMessage],
         options: &ChatRequestOptions,
-    ) -> Result<String> {
+    ) -> GeminiRequest {
         let system_instruction = system.map(|text| GeminiContent {
             role: "system".to_string(),
             parts: vec![GeminiPart {
-                text: text.to_string(),
+                text: Some(text.to_string()),
             }],
         });
 
@@ -161,37 +305,141 @@ impl Provider for GoogleProvider {
                 }
                 .to_string(),
                 parts: vec![GeminiPart {
-                    text: msg.content.clone(),
+                    text: Some(msg.content.clone()),
                 }],
             })
             .collect();
 
-        let payload = GeminiRequest {
+        GeminiRequest {
             contents,
             system_instruction,
             generation_config: Some(GeminiGenerationConfig {
                 temperature: options.temperature,
                 max_output_tokens: options.max_output_tokens,
             }),
-        };
+        }
+    }
+
+    fn append_stream_line(current: &mut String, line: &str) {
+        let trimmed = line.trim_end_matches('\r');
+        if trimmed.is_empty() {
+            return;
+        }
+
+        if !current.is_empty() {
+            current.push('\n');
+        }
+
+        if let Some(rest) = trimmed.trim_start().strip_prefix("data:") {
+            current.push_str(rest.trim_start());
+        } else {
+            current.push_str(trimmed);
+        }
+    }
+
+    fn flush_stream_event(current: &mut String) -> Result<Vec<String>> {
+        if current.trim().is_empty() {
+            current.clear();
+            return Ok(Vec::new());
+        }
+
+        let payload = current.trim().to_string();
+        current.clear();
+        Self::parse_stream_payload(&payload)
+    }
+
+    fn looks_like_complete_json(payload: &str) -> bool {
+        let mut brace = 0_i32;
+        let mut bracket = 0_i32;
+        let mut in_string = false;
+        let mut escape = false;
+        let mut seen_open = false;
+
+        for ch in payload.chars() {
+            if escape {
+                escape = false;
+                continue;
+            }
+            match ch {
+                '\\' if in_string => {
+                    escape = true;
+                }
+                '"' => {
+                    in_string = !in_string;
+                }
+                '{' if !in_string => {
+                    brace += 1;
+                    seen_open = true;
+                }
+                '}' if !in_string => {
+                    brace -= 1;
+                }
+                '[' if !in_string => {
+                    bracket += 1;
+                    seen_open = true;
+                }
+                ']' if !in_string => {
+                    bracket -= 1;
+                }
+                _ => {}
+            }
+        }
+
+        !in_string && brace == 0 && bracket == 0 && seen_open
+    }
+
+    fn parse_stream_payload(payload: &str) -> Result<Vec<String>> {
+        let body = payload.trim();
+        if body.is_empty() || body == "[DONE]" {
+            return Ok(Vec::new());
+        }
+
+        if body.starts_with('[') {
+            let chunks: Vec<GeminiStreamChunk> = serde_json::from_str(body)
+                .with_context(|| format!("failed to parse stream chunk array: {body}"))?;
+            let mut texts = Vec::new();
+            for chunk in chunks {
+                if let Some(text) = chunk.merge_text() {
+                    texts.push(text);
+                }
+            }
+            Ok(texts)
+        } else {
+            let chunk: GeminiStreamChunk = serde_json::from_str(body)
+                .with_context(|| format!("failed to parse stream chunk: {body}"))?;
+            Ok(chunk.merge_text().into_iter().collect())
+        }
+    }
+}
+
+#[async_trait]
+impl Provider for GoogleProvider {
+    async fn chat(
+        &self,
+        model: &str,
+        system: Option<&str>,
+        messages: &[ChatMessage],
+        options: &ChatRequestOptions,
+    ) -> Result<String> {
+        let payload = self.build_payload(system, messages, options);
 
         let response = self.execute_request(model, &payload).await?;
         response
             .candidates
             .first()
-            .and_then(|candidate| candidate.content.parts.first())
-            .map(|part| part.text.clone())
+            .and_then(|candidate| candidate.content.text())
             .ok_or_else(|| anyhow!("gemini response missing content"))
     }
 
     async fn stream_chat(
         &self,
-        _model: &str,
-        _system: Option<&str>,
-        _messages: &[ChatMessage],
-        _options: &ChatRequestOptions,
-    ) -> Result<crate::streaming::ChatStream> {
-        anyhow::bail!("streaming is MVP+ and not available yet");
+        model: &str,
+        system: Option<&str>,
+        messages: &[ChatMessage],
+        options: &ChatRequestOptions,
+    ) -> Result<ChatStream> {
+        let payload = self.build_payload(system, messages, options);
+        self.execute_stream_request(model, &payload).await
     }
 }
 
@@ -212,7 +460,8 @@ struct GeminiContent {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 struct GeminiPart {
-    text: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    text: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -231,4 +480,34 @@ struct GeminiResponse {
 #[derive(Debug, Deserialize)]
 struct GeminiCandidate {
     content: GeminiContent,
+}
+
+#[derive(Debug, Deserialize)]
+struct GeminiStreamChunk {
+    #[serde(default)]
+    candidates: Vec<GeminiCandidate>,
+}
+
+impl GeminiContent {
+    fn text(&self) -> Option<String> {
+        let mut buf = String::new();
+        for part in &self.parts {
+            if let Some(piece) = part.text.as_ref() {
+                buf.push_str(piece);
+            }
+        }
+        if buf.is_empty() {
+            None
+        } else {
+            Some(buf)
+        }
+    }
+}
+
+impl GeminiStreamChunk {
+    fn merge_text(&self) -> Option<String> {
+        self.candidates
+            .first()
+            .and_then(|candidate| candidate.content.text())
+    }
 }

@@ -1,6 +1,8 @@
+use std::io::{self, Write};
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
+use futures::StreamExt;
 use rustyline::error::ReadlineError;
 use rustyline::DefaultEditor;
 
@@ -16,10 +18,6 @@ pub struct ReplOptions {
 }
 
 pub async fn run_chat_repl(provider: DynProvider, opts: ReplOptions) -> Result<()> {
-    if opts.stream {
-        eprintln!("[info] streaming not yet supported; falling back to blocking responses");
-    }
-
     println!("Type /reset to clear history, blank line to exit.");
 
     let mut rl = DefaultEditor::new().context("failed to start line editor")?;
@@ -41,11 +39,38 @@ pub async fn run_chat_repl(provider: DynProvider, opts: ReplOptions) -> Result<(
                 rl.add_history_entry(trimmed).ok();
                 messages.push(ChatMessage::user(line.clone()));
 
-                let response = provider
-                    .chat(&opts.model, opts.system.as_deref(), &messages, &opts.request_options)
-                    .await?;
-                println!("bot> {response}");
-                messages.push(ChatMessage::assistant(response));
+                if opts.stream {
+                    let mut stream = provider
+                        .stream_chat(
+                            &opts.model,
+                            opts.system.as_deref(),
+                            &messages,
+                            &opts.request_options,
+                        )
+                        .await?;
+                    print!("bot> ");
+                    io::stdout().flush().ok();
+                    let mut assistant_response = String::new();
+                    while let Some(chunk) = stream.next().await {
+                        let token = chunk?;
+                        print!("{token}");
+                        io::stdout().flush().ok();
+                        assistant_response.push_str(&token);
+                    }
+                    println!();
+                    messages.push(ChatMessage::assistant(assistant_response));
+                } else {
+                    let response = provider
+                        .chat(
+                            &opts.model,
+                            opts.system.as_deref(),
+                            &messages,
+                            &opts.request_options,
+                        )
+                        .await?;
+                    println!("bot> {response}");
+                    messages.push(ChatMessage::assistant(response));
+                }
             }
             Err(ReadlineError::Interrupted) => continue,
             Err(ReadlineError::Eof) => break,

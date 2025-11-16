@@ -1,7 +1,7 @@
 mod trait_provider;
 
-pub mod google;
 pub mod anthropic;
+pub mod google;
 pub mod openai;
 
 use anyhow::{anyhow, Result};
@@ -11,7 +11,10 @@ pub use trait_provider::{ChatMessage, ChatRequestOptions, DynProvider, MessageRo
 
 use crate::config::ProviderConfig;
 
-pub async fn build_provider(name: &str, cfg: &ProviderConfig) -> Result<trait_provider::DynProvider> {
+pub async fn build_provider(
+    name: &str,
+    cfg: &ProviderConfig,
+) -> Result<trait_provider::DynProvider> {
     Ok(match cfg {
         ProviderConfig::Google(google_cfg) => {
             let provider = google::GoogleProvider::new(name.into(), google_cfg.clone()).await?;
@@ -26,4 +29,3 @@ pub async fn build_provider(name: &str, cfg: &ProviderConfig) -> Result<trait_pr
         }
     })
 }
-

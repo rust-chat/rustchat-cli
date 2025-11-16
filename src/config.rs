@@ -25,8 +25,8 @@ impl AppConfig {
         }
         let data = fs::read_to_string(&path)
             .with_context(|| format!("failed to read config at {}", path.display()))?;
-        let cfg: AppConfig = toml::from_str(&data)
-            .with_context(|| "failed to parse config file (toml)")?;
+        let cfg: AppConfig =
+            toml::from_str(&data).with_context(|| "failed to parse config file (toml)")?;
         Ok(cfg)
     }
 
@@ -91,7 +91,9 @@ impl ProviderConfig {
     pub fn default_model(&self) -> Option<&str> {
         match self {
             ProviderConfig::Google(cfg) => cfg.default_model.as_deref(),
-            ProviderConfig::Anthropic(cfg) | ProviderConfig::Openai(cfg) => cfg.default_model.as_deref(),
+            ProviderConfig::Anthropic(cfg) | ProviderConfig::Openai(cfg) => {
+                cfg.default_model.as_deref()
+            }
         }
     }
 }
@@ -135,7 +137,10 @@ impl ProviderKind {
     }
 }
 
-pub fn build_provider_config(kind: ProviderKind, set: &crate::cli::ConfigSetArgs) -> Result<ProviderConfig> {
+pub fn build_provider_config(
+    kind: ProviderKind,
+    set: &crate::cli::ConfigSetArgs,
+) -> Result<ProviderConfig> {
     Ok(match kind {
         ProviderKind::Google => ProviderConfig::Google(GoogleProviderConfig {
             service_account_file: set.google.service_account.clone(),
@@ -150,8 +155,7 @@ pub fn build_provider_config(kind: ProviderKind, set: &crate::cli::ConfigSetArgs
         }),
         ProviderKind::Anthropic => ProviderConfig::Anthropic(ApiKeyProviderConfig {
             api_key: Some(
-                set
-                    .shared_api
+                set.shared_api
                     .api_key
                     .clone()
                     .ok_or_else(|| anyhow!("--api-key is required for anthropic"))?,
@@ -161,8 +165,7 @@ pub fn build_provider_config(kind: ProviderKind, set: &crate::cli::ConfigSetArgs
         }),
         ProviderKind::Openai => ProviderConfig::Openai(ApiKeyProviderConfig {
             api_key: Some(
-                set
-                    .shared_api
+                set.shared_api
                     .api_key
                     .clone()
                     .ok_or_else(|| anyhow!("--api-key is required for openai"))?,

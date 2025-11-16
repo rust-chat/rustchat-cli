@@ -14,7 +14,7 @@ Terminal-first multi-provider AI chat CLI focused on Gemini for the MVP stage. T
   rustaichat config set google --api-key <YOUR_KEY> --default
   ```
 
-- Chat REPL + single-shot messaging: `chat` supports a system prompt, `/reset`, and `--save` for exporting JSON history. `message` sends a one-off request without entering the REPL.
+- Chat REPL + single-shot messaging: `chat` supports a system prompt, `/reset`, streaming (`--stream`), and `--save` for exporting JSON history. `message` sends a one-off request without entering the REPL.
 
 - Provider abstraction: Implementations conform to the trait in `provider/trait_provider.rs`. The repo includes a Google Gemini implementation and stubs for Anthropic/OpenAI.
 
@@ -68,6 +68,12 @@ rustaichat config set google --api-key <YOUR_KEY> --default
 
 ```powershell
 rustaichat chat --model gemini-2.0-flash
+```
+
+Enable token streaming:
+
+```powershell
+rustaichat chat --model gemini-2.0-flash --stream
 ```
 
 5. Send a single message without the REPL:

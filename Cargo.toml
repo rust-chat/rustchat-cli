@@ -23,3 +23,4 @@ yup-oauth2 = { version = "8", features = ["service_account"] }
 hyper = { version = "0.14", features = ["full"] }
 hyper-rustls = "0.24"
 parking_lot = "0.12"
+async-stream = "0.3"

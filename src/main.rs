@@ -115,7 +115,12 @@ async fn run_message(args: MessageCommand, cfg: &AppConfig) -> Result<()> {
     let prompt = args.prompt.join(" ");
     let mut messages = vec![ChatMessage::user(prompt.clone())];
     let response = provider
-        .chat(&model, args.common.system.as_deref(), &messages, &request_options)
+        .chat(
+            &model,
+            args.common.system.as_deref(),
+            &messages,
+            &request_options,
+        )
         .await?;
     println!("{response}");
     messages.push(ChatMessage::assistant(response.clone()));

@@ -3,7 +3,12 @@ use std::path::PathBuf;
 use clap::{Args, Parser, Subcommand, ValueEnum};
 
 #[derive(Parser, Debug)]
-#[command(name = "rustaichat", version, author, about = "Multi-provider AI chat CLI")]
+#[command(
+    name = "rustaichat",
+    version,
+    author,
+    about = "Multi-provider AI chat CLI"
+)]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Commands,
@@ -110,7 +115,7 @@ pub struct CommonChatArgs {
     #[arg(long)]
     pub system: Option<String>,
     /// Path to save chat history (JSON). When omitted, no persistence
-    #[arg(long = "save")] 
+    #[arg(long = "save")]
     pub save_path: Option<PathBuf>,
     /// Optional temperature override
     #[arg(long)]
