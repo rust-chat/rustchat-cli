@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: write
+  id-token: write   
 
 jobs:
   build:
@@ -72,3 +73,67 @@ jobs:
           tag: ${{ github.ref_name }}
           allowUpdates: true
           removeArtifacts: true
+          draft: true
+
+  publish-npm:
+    needs: release
+    runs-on: ubuntu-latest
+    environment: npm-publish   
+
+    permissions:
+      id-token: write   
+      contents: read
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Use Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: https://registry.npmjs.org/
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Publish to npm
+        id: npm-publish
+        continue-on-error: true
+        run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Check npm publish result
+        if: steps.npm-publish.outcome == 'failure'
+        run: |
+          echo "::warning::NPM publish failed, but GitHub release was created successfully"
+          echo "You can manually publish to npm later with: npm publish"
+          exit 0
+
+  finalize-release:
+    needs: [release, publish-npm]
+    if: always()
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Publish GitHub Release
+        if: needs.publish-npm.result == 'success'
+        uses: ncipollo/release-action@v1
+        with:
+          tag: ${{ github.ref_name }}
+          allowUpdates: true
+          draft: false
+          makeLatest: true
+
+      - name: Keep release as draft
+        if: needs.publish-npm.result != 'success'
+        run: |
+          echo "::warning::NPM publish failed - GitHub release will remain as draft"
+          echo "Please verify and manually publish the release after fixing npm issues"
